@@ -7,27 +7,58 @@ import logging
 from bs4 import BeautifulSoup
 from urllib.parse import unquote
 
+QUALITIES = ['1080p', '720p', '480p', '360p']
+
+def upgrade_quality(q, i, id):
+    q += 1
+    if q >= len(QUALITIES):
+        print(f'[ERROR]: no torrent found for episode {id}')
+        i += 1
+        q = 0
+    else:
+        print(f'[WARNING]: no torrent found with quality : {quality}')
+        quality = QUALITIES[q]
+    return q, i
+
 
 def downloadFromSoup(soup, quality, directory):
     list_link = soup.find_all("div", {"class": "rls-info-container"})
-    for link in list_link:
+    q = 0
+    if quality == "best":
+        quality = QUALITIES[q]
+
+    i = 0
+    while i < len(list_link):
+        link = list_link[i]
+        link_id = link.get('id')
+        quality_line = link.find("div", {"class": "rls-link link-"+quality})
+        if not quality_line:
+            q, i = upgrade_quality(q, i, link_id)
+            continue
+
         try:
-            torrent = link.find("div", {"class": "rls-link link-"+quality}).find("span", {"class": "dl-type hs-torrent-link"}).find("a")['href']
-            r = requests.get(torrent)
-            filename = unquote(r.headers['Content-Disposition'].split('"')[1])
-            with open(os.path.join(directory, filename), 'wb') as f:
-                f.write(r.content)
+            torrent_url = quality_line.find("span", {"class": "dl-type hs-torrent-link"}).find("a")['href']
+        except AttributeError:
+            q, i = upgrade_quality(q, i, link_id)
+            continue
+
+        try:
+            r = requests.get(torrent_url)
         except requests.exceptions.MissingSchema:
             print('[ERROR]: request failed')
         else:
+            filename = unquote(r.headers['Content-Disposition'].split('"')[1])
+            with open(os.path.join(directory, filename), 'wb') as f:
+                f.write(r.content)
             print(filename, " [OK]")
+        i += 1
 
 
 def main(args):
     # get variable from arparse
     url = args.url[0]
     directory = args.directory
-    quality = args.quality[0]
+    quality = args.quality
     # create the dir that will contains the torrent files
     if directory != '' and not os.path.isdir(directory):
         os.mkdir(directory)
@@ -59,8 +90,9 @@ if __name__ == '__main__':
             help='URL of the horrible subs anime'
     )
     parser.add_argument(
-            '-q', '--quality', default="best", nargs=1,
-            choices=['best', '1080p', '720p', '480p']
+            '-q', '--quality', type=str, nargs='?',
+            default='1080p',
+            choices=QUALITIES,
     )
     parser.add_argument(
             '-d', '--directory', type=str, nargs='?',
